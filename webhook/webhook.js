@@ -7,6 +7,14 @@ const base64 = require('base-64')
 let username = "";
 let password = "";
 let token = "";
+let products = [];
+let tees = [];
+let bottoms = [];
+let hats = [];
+let sweatshirts = [];
+let plushes = [];
+let leggings =[];
+let prodID = [];
 let success = false;
 
 USE_LOCAL_ENDPOINT = false;
@@ -34,7 +42,7 @@ async function updateMessages(msg, isUser, date){
   const msgReturn = await fetch(ENDPOINT_URL + '/application/messages',request)
   const msgResponse = await msgReturn.json()
 
-  console.log(msgResponse)
+  console.log(msgResponse.message)
 }
 
 async function deleteOldMsgs(){
@@ -101,8 +109,25 @@ async function navigateToPage(page){
     extension = '/signUp'
   }else if(page === 'signin' || page === 'sign-in'){
     extension = '/signIn'
+  }else if(page === 'welcome'){
+    extension = '/' + username
   }else{
-    extension = '/' + username + '/' + page
+    let index = products.indexOf(page)
+    let category = ''
+    if(hats.includes(page)){
+      category = 'hats'
+    }else if(plushes.includes(page)){
+      category = 'plushes'
+    }else if(bottoms.includes(page)){
+      category = 'bottoms'
+    }else if(tees.includes(page)){
+      category = 'tees'
+    }else if(leggings.includes(page)){
+      category = 'leggings'
+    }else if(sweatshirts.includes(page)){
+      category = 'sweatshirts'
+    }
+    extension = '/' + username + '/' + category + '/products/' + prodID[index]
   }
 
   let request = {
@@ -133,17 +158,73 @@ async function getCart(){
   return cartResponse.products;
 }
 
+async function getProds(){
+  let request = {
+    method: 'GET',
+    headers: {'Content-Type': 'application/json'}
+  }
+
+  const prodReturn = await fetch(ENDPOINT_URL + '/products', request)
+  const prodResponse = await prodReturn.json()
+
+  prodResponse.products.forEach(item => {
+    products.push(item.name)
+    prodID.push(item.id)
+    if(item.category === 'bottoms'){
+      bottoms.push(item.name)
+    }else if(item.category === 'hats'){
+      hats.push(item.name)
+    }else if(item.category === 'leggings'){
+      leggings.push(item.name)
+    }else if(item.category === 'tees'){
+      tees.push(item.name)
+    }else if(item.category === 'sweatshirts'){
+      sweatshirts.push(item.name)
+    }else if(item.category === 'plushes'){
+      plushes.push(item.name)
+    }
+  })
+}
+
+async function getProdInfo(product){
+  let request = {
+    method: 'GET',
+    headers: {'Content-Type': 'application/json'}
+  }
+
+  let index = products.indexOf(product);
+
+  const infoReturn = await fetch(ENDPOINT_URL + '/products/' + prodID[index], request)
+  const infoResponse = await infoReturn.json()
+
+  return infoResponse
+}
+
+async function getProdReview(product){
+  let request = {
+    method: 'GET',
+    headers: {'Content-Type': 'application/json'}
+  }
+
+  let index = products.indexOf(product);
+
+  const reviewReturn = await fetch(ENDPOINT_URL + '/products/' + prodID[index] + '/reviews', request)
+  const reviewResponse = await reviewReturn.json()
+
+  return reviewResponse.reviews
+}
+
 app.get('/', (req, res) => res.send('online'))
 app.post('/', express.json(), (req, res) => {
   const agent = new WebhookClient({ request: req, response: res })
 
-  function welcome () {
+  async function welcome () {
     if(success){
-      updateMessages(agent.query, true, new Date())
+      await updateMessages(agent.query, true, new Date())
     }
     agent.add('Welcome to WiscShop!')
     if(success){
-      updateMessages('Welcome to WiscShop!',false, new Date())
+      await updateMessages('Welcome to WiscShop!',false, new Date())
     }
     console.log(ENDPOINT_URL)
   }
@@ -159,6 +240,7 @@ app.post('/', express.json(), (req, res) => {
     success = true
 
     await deleteOldMsgs()
+    await getProds()
   }
 
   function loginCheck(){
@@ -221,7 +303,12 @@ app.post('/', express.json(), (req, res) => {
   async function navigate(){
     if(success){
       await updateMessages(agent.query, true, new Date()) 
-      let page = agent.parameters.storePage
+      let page;
+      if(agent.parameters.storePage !== ''){
+        page = agent.parameters.storePage
+      }else if(agent.parameters.Product !== ''){
+        page = agent.parameters.Product
+      }
 
       let response = await navigateToPage(page)
 
@@ -237,7 +324,8 @@ app.post('/', express.json(), (req, res) => {
       await updateMessages(agent.query, true, new Date())
       let cartQuery = agent.parameters.cartInfo
       let itemType = null
-      if(agent.parameters.itemType !== null){
+      let response = ''
+      if(agent.parameters.itemType != ''){
         itemType = agent.parameters.itemType
       }
 
@@ -245,43 +333,75 @@ app.post('/', express.json(), (req, res) => {
 
       if(cartQuery === 'much' || cartQuery ==='price' || cartQuery === 'amount'){
         let price = 0
-        let response = ''
         if(itemType != null){
           cart.forEach(item => {
             if(item.category === itemType){
-              price += item.price
+              price += (item.price * item.count)
             }
           });
           response = 'The price of the ' + itemType + ' in your cart is $' + price
         }else{
           cart.forEach(item => {
-            price += item.price
+            price += (item.price * item.count)
           });
           response = 'The price of your cart is $' + price
         }
-
-        agent.add(response)
-        await updateMessages(response, false, new Date())
       }else if(cartQuery === 'many'){
         let quantity = 0
-        let response = ''
         if(itemType != null){
           cart.forEach(item => {
             if(item.category === itemType){
               quantity += item.count
             }
-            response = 'You have ' + quantity + itemType + ' in your cart currently'
           });
+          response = 'You have ' + quantity + ' ' + itemType + ' in your cart currently'
         }else{
-          cart.forEach(item =>{
-            quantity += item.count
-          });
-          response = 'You have ' + quantity + ' items in your cart at the moment'
+          response = 'You have '
+          for(var i = 0; i < Object.values(cart).length; i++){
+            let item = cart[i]
+            if(i === Object.values(cart).length - 1 && Object.values(cart).length === 1){
+              response += item.count + ' ' + item.name + 's in your cart'
+            }else if(i === Object.values(cart).length - 1){
+              response += 'and ' + item.count + ' ' + item.name + 's in your cart'
+            }else{
+              response += item.count + ' ' + item.name + 's, '
+            }
+          }
         }
-
-        agent.add(response)
-        await updateMessages(response, false, new Date())
       }
+
+      agent.add(response)
+      await updateMessages(response, false, new Date())
+    }else{
+      agent.add('Please sign-in first!')
+    }
+  }
+
+  async function productQuery(){
+    if(success){
+      await updateMessages(agent.query,true,new Date())
+      let product = agent.parameters.Product
+      let query = agent.parameters.InfoQuery
+      let response = ''
+      console.log(query)
+      console.log(query === 'review')
+      if(query === 'review'){
+        let reviews = await getProdReview(product)
+        response = 'Here are the reviews of the ' + product + '\n'
+        reviews.forEach(review => {
+          response += review.stars + ' stars: ' + review.title + '\n' + review.text + '\n\n'
+        });
+      }else{
+        let prodInfo = await getProdInfo(product)
+        if(query === 'price' || query === 'much'){
+          response = 'The ' + product + ' costs $' + prodInfo.price
+        }else if(query === 'description'){
+          response = 'Here you go:\n' + prodInfo.description 
+        }
+      }
+
+      agent.add(response)
+      await updateMessages(response, false, new Date())
     }
   }
 
@@ -293,6 +413,7 @@ app.post('/', express.json(), (req, res) => {
   intentMap.set('CategoryTagQuery', categoryTagCheck)
   intentMap.set('StoreNavigation', navigate)
   intentMap.set('CartInformation', cartInfo)
+  intentMap.set('ProductInfo', productQuery)
   // You will need to declare this `Login` content in DialogFlow to make this work
   intentMap.set('LoginRequest', login) 
   agent.handleRequest(intentMap)
