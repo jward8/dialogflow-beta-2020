@@ -89,6 +89,50 @@ async function getTags(category){
   return tagResponse.tags
 }
 
+async function navigateToPage(page){
+  let extension = ''
+  if(page === 'homepage' || page === 'home page'){
+    extension = '/'
+  }else if(page === 'cart' || page === 'checkout'){
+    extension = '/' + username + '/cart'
+  }else if(page === 'tees' || page === 't-shirts'){
+    extension = '/' + username + '/tees'
+  }else if(page === 'signup' || page === 'sign-up'){
+    extension = '/signUp'
+  }else if(page === 'signin' || page === 'sign-in'){
+    extension = '/signIn'
+  }else{
+    extension = '/' + username + '/' + page
+  }
+
+  let request = {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json',
+    'x-access-token': token},
+    body: JSON.stringify({
+      'page': extension
+    })
+  }
+
+  const navReturn = await fetch(ENDPOINT_URL + '/application', request)
+  const navResponse = await navReturn.json()
+
+  return "Alright! Here is the page you were looking for";
+}
+
+async function getCart(){
+  let request = {
+    method: 'GET',
+    headers: {'Content-Type': 'application/json',
+    'x-access-token': token}
+  }
+
+  const cartReturn = await fetch(ENDPOINT_URL + '/application/products', request)
+  const cartResponse = await cartReturn.json()
+
+  return cartResponse.products;
+}
+
 app.get('/', (req, res) => res.send('online'))
 app.post('/', express.json(), (req, res) => {
   const agent = new WebhookClient({ request: req, response: res })
@@ -174,12 +218,81 @@ app.post('/', express.json(), (req, res) => {
     }
   }
 
+  async function navigate(){
+    if(success){
+      await updateMessages(agent.query, true, new Date()) 
+      let page = agent.parameters.storePage
+
+      let response = await navigateToPage(page)
+
+      agent.add(response)
+      await updateMessages(response, false, new Date())
+    }else{
+      agent.add("I'd be happy to do that for you, first you need to log-in")
+    }
+  }
+
+  async function cartInfo(){
+    if(success){
+      await updateMessages(agent.query, true, new Date())
+      let cartQuery = agent.parameters.cartInfo
+      let itemType = null
+      if(agent.parameters.itemType !== null){
+        itemType = agent.parameters.itemType
+      }
+
+      let cart = await getCart()
+
+      if(cartQuery === 'much' || cartQuery ==='price' || cartQuery === 'amount'){
+        let price = 0
+        let response = ''
+        if(itemType != null){
+          cart.forEach(item => {
+            if(item.category === itemType){
+              price += item.price
+            }
+          });
+          response = 'The price of the ' + itemType + ' in your cart is $' + price
+        }else{
+          cart.forEach(item => {
+            price += item.price
+          });
+          response = 'The price of your cart is $' + price
+        }
+
+        agent.add(response)
+        await updateMessages(response, false, new Date())
+      }else if(cartQuery === 'many'){
+        let quantity = 0
+        let response = ''
+        if(itemType != null){
+          cart.forEach(item => {
+            if(item.category === itemType){
+              quantity += item.count
+            }
+            response = 'You have ' + quantity + itemType + ' in your cart currently'
+          });
+        }else{
+          cart.forEach(item =>{
+            quantity += item.count
+          });
+          response = 'You have ' + quantity + ' items in your cart at the moment'
+        }
+
+        agent.add(response)
+        await updateMessages(response, false, new Date())
+      }
+    }
+  }
+
 
   let intentMap = new Map()
   intentMap.set('Default Welcome Intent', welcome)
   intentMap.set('LoginCheck', loginCheck)
   intentMap.set('CategoryQuery', categoryCheck)
   intentMap.set('CategoryTagQuery', categoryTagCheck)
+  intentMap.set('StoreNavigation', navigate)
+  intentMap.set('CartInformation', cartInfo)
   // You will need to declare this `Login` content in DialogFlow to make this work
   intentMap.set('LoginRequest', login) 
   agent.handleRequest(intentMap)
